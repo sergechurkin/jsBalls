@@ -12,6 +12,6 @@ Game application on js for demonstrating the use of animation with the ability t
 Захват и бросание мячика реализовано по технологии [Drag'n'Drop]( https://learn.javascript.ru/drag-and-drop-objects).
 Форму параметров настройки можно вызвать по `F4` или из формы, которая вызывается по правой кнопке мыши (в мобильных устройствах по длительному касанию экрана).
 
-![Скрин формы настройки](parameters.зтп)
+![Скрин формы настройки](parameters.png)
 
 [Запустить программу.]( http://sergechurkin.vacau.com/ball.html)
