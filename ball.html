@@ -1,0 +1,780 @@
+﻿<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>jsBall</title>
+    <style>
+
+html, body, .canvas {
+  position: fixed; 
+  padding: 0%;
+  margin: 0%;
+}
+.canvas {
+  width:30%;
+  height:100%;
+  top:0%;
+  right:0%;
+  border: solid 1px gray;
+}
+#div {
+  width:70%;
+  height:100%;
+  top:0%;
+  left:0%;
+  border: solid 1px white;
+  border-radius: 3px;
+  background: white; 
+  position: fixed; 
+  z-index:998;
+}
+.draggable {
+  left:0%;
+  width:30px;
+  height:30px;
+  position:absolute;
+  cursor: pointer;
+}
+.text {
+    position: fixed;
+    left: 10px;
+    top: 10px;
+    color: goldenrod;
+    font-size: 20px;
+}
+#form {
+  width:40%;
+  height:40%;
+  top:30%;
+  left:30%;
+  border: solid 1px gray;
+  border-radius: 3px;
+  background: whitesmoke;
+  position: fixed; 
+  overflow-y: scroll;
+  z-index: 1000;
+}
+.input, .error {
+    width: 50px;
+   }
+.error { border-color: red; } 
+.errormess { color: red; } 
+
+    </style>
+  </head>
+  <body>
+    <div id="form"></div>
+    <div id="div"></div>
+    <canvas id="canvas" class="canvas"></canvas>
+  <script>
+
+var parameters = {
+  language: 'EN',
+  sizeElem: 30, // Размер элемента (картинки мячика)
+  numBalls: 8, // Количество мччиков
+  g: 1000, // Ускорение свободного падения px/ms/ms
+  speedLose: 10, // Потеря скорости при столкновении
+  step: 3, // Шаг интегрирования, ms
+  speedMax: 1000 //  Максимальная скорость, px/s
+  };
+const DONE = 4; // запрос завершён
+var ip = '';
+var country_code = '';
+var country_name = '';
+var city = '';
+// 1. Создаём новый объект XMLHttpRequest
+var xhr = new XMLHttpRequest();
+xhr.open('GET', 'http://freegeoip.net/json/', true);
+xhr.send();
+xhr.onreadystatechange = function() { // (3)
+  if (xhr.readyState != DONE) return;
+  if (xhr.status == 200) {
+    var data = JSON.parse(xhr.responseText);
+    ip = data.ip;
+    var str = getCookie('language');
+    var str;
+    if ( str !== undefined) parameters.language = str;
+    else parameters.language = data.country_code;
+    country_name = data.country_name;
+    city = data.city;
+  }
+}
+/*
+var script = document.createElement('script');
+script.src = 'https://code.jquery.com/jquery-3.2.1.js';
+document.body.appendChild(script);
+script.onload = function() {
+  $.ajax({
+    async: true,
+    url:'http://freegeoip.net/json/',
+    type:'get',
+    dataType:'json'
+  }).done(function(data) {
+    ip = data.ip;
+    var str = getCookie('language');
+    if ( str !== undefined) parameters.language = str;
+    else parameters.language = data.country_code;
+    country_name = data.country_name;
+    city = data.city;
+  });
+}
+*/
+// читаем cookie
+for (var ind in parameters){
+  var str  = getCookie(ind);
+  if ( str !== undefined) { 
+    if ( ind !== 'language') parameters[ind] = Number(str);  
+    else parameters[ind] = str; 
+  }
+}
+// возвращает cookie с именем name, если есть, если нет, то undefined
+function getCookie(name) {
+  var matches = document.cookie.match(new RegExp(
+    "(?:^|; )" + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + "=([^;]*)"
+  ));
+  return matches ? decodeURIComponent(matches[1]) : undefined;
+}
+ 
+var duration = 60 * 60 * 1000; // Длительность анимации
+var requestId = null;
+form.hidden = true;
+// Рисует функция draw
+// Продолжительность анимации duration
+function animate(draw, duration) {
+  var timeStart = performance.now();
+  var timeLast = 0;
+  requestId = requestAnimationFrame(function animate(time) {
+    // определить, сколько прошло времени с начала анимации
+    var delta = 0;
+    var timePassed = time - timeStart;
+    // возможно в первом кадре timeStart будет больше переданного текущего времени time
+    if (timePassed < 0 ) delta = timePassed, timePassed = 0;
+    // Интервал между предыдущим и текущим кадрами
+    var timePassedLast = timePassed - timeLast - delta;
+    timeLast = timePassed; 
+    // нарисовать состояние анимации в момент timePassed
+    draw(timePassed, timePassedLast, time);
+    // если время анимации не закончилось - запланировать ещё кадр
+    if (timePassed < duration) requestId = requestAnimationFrame(animate);
+  });
+}
+// Конструктор мячиков
+function Ball(x, y, vx, vy, cx, cy, c, isDrag) {
+// Координаты
+  this.x = Math.round(x);
+  this.y = Math.round(y);
+// Координаты столкновения
+  this.cx = cx;
+  this.cy = cy;
+// Номер шара, с которым столкнулся
+  this.c = c; 
+// Скорость
+  this.vx = vx;
+  this.vy = vy;
+// Захвачен
+  this.isDrag = isDrag;
+// Метод очистить
+  this.clear = function(id) {
+    var elem = document.getElementById(id);
+    if ( this.isDrag === true) return this;
+    if (elem !== null) {
+//      elem.style.filter = "alpha(Opacity=0)";
+      elem.style.opacity = 0;
+    }
+    return this;
+  }
+// Метод  нарисовать
+  this.paint = function(id) {
+    var elem = document.getElementById(id);
+    if ( this.isDrag === true) return this;
+    if (elem === null) {
+        elem = document.createElement('img');
+        elem.id = id;
+        elem.src = "data:image/png;base64,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";
+        elem.className = 'draggable';
+        elem.alt = '';
+    }
+    div.insertBefore(elem, null); // insertAfter
+    elem.style.left = this.x + 'px';
+    elem.style.top = this.y + 'px';
+    elem.style.width  = parameters.sizeElem + 'px';
+    elem.style.height = parameters.sizeElem + 'px';
+//    elem.style.filter = "alpha(Opacity=100)";
+    elem.style.opacity = 0.7;
+    return this;
+  }
+// Произошло ли стоклновение
+  this.iscrash = function(p) {
+    if (Math.abs(this.x - p.x) < parameters.sizeElem && Math.abs(this.y - p.y) < parameters.sizeElem) return true;
+    else return false;
+  }
+}
+// Конструктор границы
+function Rect(h) {
+  this.h = h;
+  this.clear = function(){
+    ctx.clearRect(0, 0, parameters.sizeElem / 2, window.innerHeight);
+    return this;
+  }
+  this.paint = function(){
+    if (this.h > 0) ctx.fillStyle = 'green';
+    else ctx.fillStyle = 'red';
+    ctx.fillRect(0, parameters.sizeElem * this.h, parameters.sizeElem / 2, window.innerHeight); 
+    return this;
+  }
+}
+// Конструктор вектора (стрелки)           
+function Vector(x, y, w, l, angle, color, type, na, lmax, vmin, vmax, ca, txt) {
+// Координаты начала
+  this.x = Math.round(x);
+  this.y = Math.round(y);
+  this.w = Math.round(w); // ширина
+  this.l = Math.round(l); // длина
+  this.angle = angle; // угол поворота стрелки в градусах (0 - вверх)
+  this.color = color;
+  this.type = type; // тип отображения: 'a' - angle, 'v' - value
+  this.na = Math.round(na); // Количество разбиенийй (окружностей)
+  this.lmax = Math.round(lmax); // максимальный радиус
+  this.vmin = vmin; // минимальное значение
+  this.vmax = vmax; // максимальное значение
+  this.ca = ca; // цвет окружностей
+  this.txt = txt; // единица измерения
+  this.paint = function(){
+    var a = 0;
+    ctx.save(); // save the current co-ordinate system before we screw with it
+    ctx.translate(this.x, this.y); // move to the middle of where we want to draw our image
+    if (this.type === 'a') {
+      for (var i = 0; i <= this.lmax + 1; i += this.lmax / this.na) { // canvas.width, canvas.height
+        ctx.moveTo(i, 0);
+        ctx.arc(0, 0, i, 0, 2 * Math.PI);
+      }
+      vectorSpeed.puttext('black', '14px', 'Arial', String(this.vmin) + '°', -5, - this.lmax - 10)
+      vectorSpeed.puttext('black', '14px', 'Arial', String((this.vmax - this.vmin) / 4) + '°', this.lmax + 10, 5)
+      vectorSpeed.puttext('black', '14px', 'Arial', String((this.vmax - this.vmin) / 2) + '°', -10, this.lmax + 15)
+      vectorSpeed.puttext('black', '14px', 'Arial', String((this.vmax - this.vmin) * 3 / 4) + '°', - this.lmax - 30, 5)
+      for (var i = 0; i <= this.na; i += Math.PI / this.na) { // canvas.width, canvas.height
+        ctx.rotate(Math.PI / (this.na * 2));
+        a += Math.PI / (this.na * 2);
+        ctx.moveTo(- this.lmax, 0);
+        ctx.lineTo(this.lmax, 0);
+      }
+      ctx.strokeStyle= this.ca;
+      ctx.stroke();
+      ctx.rotate(-a); // Вернём начальный угол
+    }
+    if (this.type === 'v') { 
+//    Контур
+      ctx.beginPath();
+      ctx.rotate(- Math.PI / 8);
+      ctx.moveTo(- this.lmax * 1.1, 0);
+      ctx.arc( 0, 0, this.lmax * 1.1, - Math.PI, Math.PI / 4);
+      ctx.lineTo(- this.lmax * 1.1, 0);
+      ctx.rotate(Math.PI / 8);
+      ctx.fillStyle = 'Snow';
+      ctx.fill();
+//    Шкала
+      vectorSpeed.puttext('black', '14px', 'Arial', String(this.vmin), - this.lmax, 5)
+      ctx.rotate(-Math.PI / 4);
+      vectorSpeed.puttext('black', '14px', 'Arial', String((this.vmax - this.vmin) / 4), -10, - this.lmax + 5)
+      ctx.rotate( Math.PI / 4);
+      vectorSpeed.puttext('black', '14px', 'Arial', String(this.vmax - this.vmin), this.lmax - 5, 5)
+      ctx.rotate(Math.PI / 4);
+      vectorSpeed.puttext('black', '14px', 'Arial', String((this.vmax - this.vmin) * 3 / 4), -10, - this.lmax + 5)
+      ctx.rotate(- Math.PI / 4);
+      vectorSpeed.puttext('black', '14px', 'Arial', String((this.vmax - this.vmin) / 2), -5, - this.lmax + 5)
+//   Единицы измерения
+      vectorSpeed.puttext('black', '14px', 'Arial', this.txt, -15, 0.3 * this.lmax)
+//    Деления шкалы
+      for (var i = 0; i <= this.na; i++) { // canvas.width, canvas.height
+        if (i % 5 === 0)  ctx.moveTo(- this.lmax + w, 0);
+        else ctx.moveTo(- this.lmax + 2 * w, 0);
+        ctx.lineTo(- this.lmax + 3 * w, 0);
+        ctx.rotate(Math.PI / this.na);
+        a += Math.PI / this.na ;
+      }
+      ctx.strokeStyle = this.ca;
+      ctx.stroke();
+      ctx.rotate(-a); // Вернём начальный угол
+      ctx.closePath();
+    }
+    ctx.rotate(this.angle);
+    // draw it up 
+    ctx.beginPath();
+    ctx.arc(0, 0, this.w / 4, 0, Math.PI);
+    ctx.lineTo(- this.w / 4, - this.l);
+    ctx.lineTo(- this.w / 2, - this.l);
+    ctx.lineTo(0, - this.l - this.w);
+    ctx.lineTo(this.w / 2, - this.l);
+    ctx.lineTo(this.w / 4, - this.l);
+    ctx.fillStyle = this.color;
+    ctx.fill();
+    ctx.closePath();
+    ctx.restore(); // and restore the co-ords to how they were when we began
+    return this;
+  }
+  this.puttext = function(color, fontsize, fonttype, text, x, y, isCtnter) {
+    var textWidth = ctx.measureText(text).width;
+    if (isCtnter === true) x = (canvas.width - x - textWidth) / 2;
+    ctx.fillStyle = color; 
+    ctx.font = fontsize + ' ' + fonttype;
+    ctx.fillText(text, x, y);
+  }
+}
+
+function cleartextDiv(x, y, w, h) {
+  var textElem = document.getElementById('text');
+  if (textElem !== null) div.removeChild(textElem);
+}
+
+function puttextDiv (color, fontsize, fonttype, text, x, y) {
+  var textElem = document.getElementById('text');
+  if (textElem === null) {
+    textElem = document.createElement('div');
+    textElem.id = 'text';
+    textElem.className = 'text';
+    textElem['z-index'] = '999';
+    div.appendChild(textElem);
+  }
+  textElem.style.left = x + 'px';
+  textElem.style.top = y + 'px';
+  textElem.style.color = color;
+  textElem.innerHTML = text;
+}
+
+// Потеря скорости при столкновении
+function speedLimit(s) {
+  return (100 - parameters.speedLose) * s / 100;
+}
+function sign(n) {
+  if (n >= 0) return 1;
+  else return -1;
+}
+// Мат.модель движение мячиков
+function model(timePassedLast) {
+  var g = parameters.g / 1000000; // Ускорение свободного падения px/ms/ms
+  for (var t = 0; t <= timePassedLast; t = t + parameters.step ) {
+    balls.forEach(function(item, i, arr) {
+//    Не анимируем шар, который drag
+      if (item.isDrag === true) return;
+      if (item.y >= window.innerHeight - parameters.sizeElem - 1) {
+        item.vx = item.vx - sign(item.vx) / 3000; // Трение
+      } else{
+        item.vx = item.vx;
+      }
+      item.vy = item.vy + g * parameters.step;
+      item.x  = item.x + item.vx * parameters.step;
+      item.y  = item.y + item.vy * parameters.step;
+//    Столкновение
+      for (var j = 0; j < parameters.numBalls; j++) {
+        if ( i !== j && item.iscrash(balls[j])) {
+          var vx = item.vx;
+          var vy = item.vy;
+//  Столкновение с лежащим шаром
+          if (item.y >= window.innerHeight - parameters.sizeElem - 1) {
+              if (balls[j].isDrag !== true) balls[j].vx = sign(balls[j].x - item.x) * 100 / 1000; 
+              else  {
+                item.vx = speedLimit(balls[j].vx);
+                item.vy = speedLimit(balls[j].vy);
+              }
+              item.vx = - sign(balls[j].x - item.x) * 0.1; 
+          } else if (balls[j].y >= window.innerHeight - parameters.sizeElem - 1 || 
+                     (balls[j].isDrag === true && (balls[j].vx < 0.1 || balls[j].vy < 0.1))) {
+              if (balls[j].isDrag !== true) balls[j].vx = sign(balls[j].x - item.x) * 100 / 1000; 
+              item.vx = - sign(balls[j].x - item.x) * 0.1; 
+          } else {
+            if(item.c !== j || (Math.abs(item.x - item.cx) > 1 && Math.abs(item.y - item.cy) > 1)) { // Чтоб не слипались
+              item.cx = item.x;
+              item.cy = item.y;
+              item.c = j;
+              item.vx = speedLimit(balls[j].vx);
+              item.vy = speedLimit(balls[j].vy);
+              if (balls[j].isDrag !== true) balls[j].vx = speedLimit(vx);
+              if (balls[j].isDrag !== true) balls[j].vy = speedLimit(vy);
+            }
+          }
+        } // iscrash
+      }
+//    Отскок от краёв
+      if ( item.x < 0) {
+        if (item.vx < 0) item.vx = - speedLimit(item.vx);
+        item.x = 0;
+      }
+      if ( item.y < 0) {
+        if (item.vy < 0) item.vy = - speedLimit(item.vy);
+        item.y = 0;
+      }
+      if ( item.y > window.innerHeight - parameters.sizeElem) {
+        if (item.vy > 0) item.vy = - speedLimit(item.vy);
+        item.y = window.innerHeight - parameters.sizeElem;
+     }
+// Вылет за границу
+      if ( item.x > Number(computedDivStyle.width.replace(/px/, '')) - parameters.sizeElem) {
+        if (item.y > parameters.sizeElem * rect.h) {
+          if (item.vx > 0) item.vx = - speedLimit(item.vx);
+          item.x = Number(computedDivStyle.width.replace(/px/, '')) - parameters.sizeElem;
+        } else {
+          if (item.vx !== 0.25 && item.y !== 0) scores++;
+          item.vx = 0.25;
+          item.y = 0;
+       }
+      }
+      if (item.x > window.innerWidth) {
+        item.x = 0;
+        item.y = 0;
+        item.vx = 0;
+        item.vy = 0;
+      }
+
+    });
+  }
+}
+
+
+function pad(str, len, symb) {
+  str = String(str);
+  if (!symb) symb = ' ';
+  while (str.length < len) str = symb + str;
+  return str;
+}
+function getRandomArbitary(min, max) {
+  return Math.random() * (Number(max) - Number(min)) + Number(min);
+}
+
+// Коррекция наползаний
+function ballsCorrect() {
+  balls.forEach(function(item, i, arr) {
+    for (var j = i + 1; j < parameters.numBalls; j++) {
+      if (item.x > balls[j].x && item.x - balls[j].x < parameters.sizeElem) balls[j].x = item.x + parameters.sizeElem + 1;
+      if (item.x < balls[j].x && - item.x + balls[j].x < parameters.sizeElem) balls[j].x = item.x - parameters.sizeElem - 1;
+      if (item.y > balls[j].y && item.y - balls[j].y < parameters.sizeElem) balls[j].y = item.y + parameters.sizeElem + 1;
+      if (item.y < balls[j].y && - item.y + balls[j].y < parameters.sizeElem) balls[j].y = item.y - parameters.sizeElem - 1;
+    }
+  });
+}
+
+TO_RADIANS = Math.PI/180; 
+var draw;
+var div = document.getElementById('div');
+var computedDivStyle = getComputedStyle(div);
+var canvas = document.getElementById('canvas');
+var computedCanvasStyle = getComputedStyle(canvas);
+var ctx = canvas.getContext('2d'); 
+var scores = 0;
+var iCur = 0;
+var balls = [];
+var ballsOld = [];
+// Инициализация размера canvas
+canvas.width = canvas.offsetWidth;
+canvas.height = canvas.offsetHeight;
+
+for (var i = 0; i < parameters.numBalls; i++) {
+  balls.push(new Ball(getRandomArbitary(0, computedDivStyle.width.replace(/px/, '')), 
+                      getRandomArbitary(0, computedDivStyle.height.replace(/px/, '')), 
+                      getRandomArbitary(0, 1), getRandomArbitary(0, 1), false));
+  ballsOld.push({x: 0, y: 0});
+}
+ballsCorrect();
+var rect = new Rect(1.5);
+var vectorDirection = new Vector(canvas.width / 2 + 7, canvas.height / 4, 20, 100, 0, 'rgba(0, 200, 0, 0.75)', 'a', 9, 100, 0, 360, 'gold');
+var vectorSpeed = new Vector(canvas.width / 2 + 7, canvas.height * 3 / 4 + 30, 10, 60, 0, 'rgba(255, 0, 0, 0.75)', 'v', 40, 100, 0, 2, 'black', 'px/ms');
+
+// Запуск анимации
+animate(draw = function (timePassed, timePassedLast, time) {
+  ctx.clearRect(0, 0, Number(computedCanvasStyle.width.replace(/px/, '')), window.innerHeight);
+  cleartextDiv(Number(computedDivStyle.width.replace(/px/, '')) - 150, 0, Number(computedDivStyle.width.replace(/px/, '')), 25);
+  rect.clear();
+  balls.forEach(function(item, i, arr) {
+// Если элемент неподвижен, его перерисовывать не надо
+    if(ballsOld[i].x !== balls[i].x || ballsOld[i].y !== balls[i].y) item.clear('ball' + i);
+  });
+  model(timePassedLast);
+  rect.paint();
+  balls.forEach(function(item, i, arr) {
+    if(ballsOld[i].x !== balls[i].x || ballsOld[i].y !== balls[i].y) {
+      item.paint('ball'+ i);
+      ballsOld[i].x = balls[i].x;
+      ballsOld[i].y = balls[i].y;
+    }
+  });
+  puttextDiv('goldenrod', '20px', 'Georgia', translate('Scores') + ': ' + scores, Number(computedDivStyle.width.replace(/px/, '')) - 150, 20);
+  vectorDirection.l = Math.sqrt(Math.pow(balls[0].vx, 2) + Math.pow(balls[0].vy, 2)) * 100;
+  for (var i = 0; i < parameters.numBalls; i++) {
+    if (balls[i].isDrag === true) {
+      iCur = i;
+      break;
+    }
+  }
+  var c = Math.sqrt(Math.pow(balls[iCur].vx, 2) + Math.pow(balls[iCur].vy, 2));
+  if (c < 0.0015) {
+    vectorDirection.l = 0;
+    vectorDirection.angle = 0;
+    c = 0;
+  } else {
+    vectorDirection.l = c * 50;
+    if (Math.abs(balls[iCur].vx) > Math.abs(balls[iCur].vy)) vectorDirection.angle = Math.asin(balls[iCur].vx / c);
+    else vectorDirection.angle = Math.acos(- balls[iCur].vy / c);
+  }
+  vectorDirection.paint();
+  vectorDirection.puttext('black', '14px', 'Arial', translate('Direction of Speed Vector'), 0, canvas.height / 2 + 10, true)
+  vectorDirection.puttext('black', '14px', 'Arial', translate('Ball #') + ' ' + iCur + ' = ' + pad(Math.round(vectorDirection.angle / TO_RADIANS), 7) +  '°', 0, canvas.height / 2 + 30, true)
+  vectorSpeed.angle = - Math.PI / 2 + c * Math.PI / 2; // c = 0 - 2
+  vectorSpeed.paint();
+  vectorSpeed.puttext('black', '14px', 'Arial', translate('Value of Speed Vector'), 30, canvas.height - 30, true)
+  vectorSpeed.puttext('black', '14px', 'Arial', translate('Ball #') + ' ' + iCur + ' = ' + pad(Math.round((c)*1000)/1000, 7) + ' px/ms', 20, canvas.height - 10, true)
+//  console.log(Math.round(timePassedLast) + ' ' + Math.round(timePassed) + ' ' + Math.round(time));
+}, duration);
+
+function translate(term) {
+  var terms = {
+    Scores: 'Очки',
+    Continue: 'Продолжить',
+    Parameters: 'Настройка',
+    Reload: 'Перезапустить',
+    Exit: 'Выйти',
+    Language: 'Язык',
+    'Size of Balls, px': 'Размер мячей, px',
+    'Number of Balls': 'Количество мячей',
+    'Gravitational Acceleration, px/s/s': 'Ускорение свободного падения, px/s/s',
+    'Speed Lose when Collision, %': 'Потеря скорости при столкновении, %',
+    'Step of Integration, ms': 'Шаг интегрирования, ms',
+    'Ball #': 'мяча №',
+    'Direction of Speed Vector': 'Направление вектора скорости',
+    'Value of Speed Vector': 'Величина вектора скорости',
+    Save: 'Сохранить',
+    Cancel: 'Отменить',
+    'Default Parameters': 'Параметры по умолчанию',
+    'Enter a number': 'Введите число',
+    'Browser does not support': 'Браузер не поддерживает'
+  };
+  if (terms[term] !== undefined && parameters.language === 'RU') return terms[term]; 
+  else return term; 
+}
+
+function start() {
+  form.hidden = true;
+  animate(draw, duration);
+}
+function tag_h(size, text, color) {
+  return '<h' + size + ' align="center" style="color: ' + color + '">' + text + '</h' + size + '>';
+}
+function tag_button(text, script) {
+  return '<button style="border-radius: 2px" onclick="' + script + '">' + text + '</button>';
+}
+function tag_form(legend, form, buttons) {
+  var str = '';
+  var strButtons = '';
+  for (var i = 0; i < form.length; i++) {
+    str = str + '<label for="' + form[i].name + '">' + form[i].label + ': <' + form[i].tag + 
+      ' name="' + form[i].name + '" id="' + form[i].name + '"';
+    if (form[i].tag === 'input') {
+      str = str + ' type="' + form[i].type + '" class="' + form[i].tag + '" value="' + form[i].value + 
+        '" onblur="numValidate(this);" onfocus="clearMess(this);">' + 
+        ' <a id="error' + form[i].name + '" class="errormess"></a>';
+    }
+    if (form[i].tag === 'select') {
+      str = str + '>';
+      for (var j = 0; j < form[i].options.length; j++) {
+        str = str + '<option ' + (form[i].options[j].selected ? 'selected' : '') + '>' + form[i].options[j].value + '</option>';
+      }
+      str = str + '</select>';
+    }
+    str = str + '</label><br />';
+  }
+  strButtons = strButtons + '<div style="margin: 5px" align="center">';
+  for (var i = 0; i < buttons.length; i++) {
+    strButtons = strButtons + tag_button(buttons[i].label, buttons[i].script);
+  }
+  strButtons = strButtons + '</div>';
+  return '<fieldset><legend>' + legend + '</legend>' + str + '</fieldset>' + strButtons;
+}
+function numValidate(e) {
+  if (isNaN(e.value)) {
+    e.className = "error";
+    document.getElementById('error' + e.id).innerHTML = translate('Enter a number');
+  }
+}
+function clearMess(e) {
+  e.className = "input";
+  document.getElementById('error' + e.id).innerHTML = ''
+}
+
+function help() {
+  cancelAnimationFrame(requestId);
+  form.hidden = false;
+  form.innerHTML = '<div">' + tag_h('1', 'jsBalls', 'limegreen') +
+    tag_h('3', '<a href="https://github.com/sergechurkin/jsBalls">https://github.com/sergechurkin/jsBalls</a>') + 
+    tag_h('5', country_name + ' ' + city + ' ' + ip + ' ' + window.location.host) + 
+    '</div><div style="margin: 5px;" align="center">' +
+    tag_button(translate('Continue'), 'start();') + 
+    tag_button(translate('Reload'), 'window.location.reload();') + 
+    tag_button(translate('Exit'), 'window.close();') + 
+    tag_button(translate('Parameters'), 'formParam();') + '</div>';
+}
+// Сохраняем параметры
+function save() {
+  var elements = document.getElementsByTagName('input');
+  for (var i = 0; i < elements.length; i++) {
+    if (elements[i].className === "error") return;
+  }
+  parameters.language = language.value;
+  parameters.sizeElem = sizeElem.value;
+  parameters.numBalls = numBalls.value;
+  parameters.g = g.value;
+  parameters.speedLose = speedLose.value;
+  parameters.step = step.value;
+  // сохранение cookie
+  var date = new Date(new Date().getTime() + 24 * 60 * 60 * 1000);
+  for(ind in parameters) {
+    document.cookie = ind +  '=' + parameters[ind] + '; path=/; expires=' + date.toUTCString();
+  }
+  window.location.reload();
+}
+function defaultParam() {
+  var elements = document.getElementsByTagName('input');
+  language.value = 'EN';
+  sizeElem.value = 30;
+  numBalls.value = 8;
+  g.value = 1000;
+  speedLose.value = 10;
+  step.value =  3;
+  for (var i = 0; i < elements.length; i++) {
+    clearMess(elements[i]);
+  }
+}
+// Форма ввода параметров 
+function formParam() {
+  cancelAnimationFrame(requestId);
+  form.hidden = false;
+  form.innerHTML = tag_form(translate('Parameters'), [
+    {tag: 'select', type: 'select', label: translate('Language'), name: 'language', options:[{value: 'EN', selected: parameters.language !== 'RU'}, {value: 'RU', selected: parameters.language === 'RU'}]},
+    {tag: 'input', type: 'text', label: translate('Size of Balls, px'), name: 'sizeElem', value: parameters.sizeElem},
+    {tag: 'input', type: 'text', label: translate('Number of Balls'), name: 'numBalls', value: parameters.numBalls},
+    {tag: 'input', type: 'text', label: translate('Gravitational Acceleration, px/s/s'), name: 'g', value: parameters.g},
+    {tag: 'input', type: 'text', label: translate('Speed Lose when Collision, %'), name: 'speedLose', value: parameters.speedLose},
+    {tag: 'input', type: 'text', label: translate('Step of Integration, ms'), name: 'step', value: parameters.step}
+  ], [
+    {label: translate('Save'), script: 'save();'}, 
+    {label: translate('Cancel'), script: 'start();'},
+    {label: translate('Default Parameters'), script: 'defaultParam();'}
+  ]);
+}
+// По нажатию на правую кнопку
+document.oncontextmenu = function(e) {
+  help();
+  return false; // Отмена стандартного контекстного меню
+}
+
+var oldMoveTime;
+var oldX; 
+var oldY; 
+var shiftX;
+var shiftY;
+var elem;
+function moveAt(e) {
+  if (elem == undefined) return;
+  if (!balls[elem.id.replace(/ball/, '')].isDrag) return;
+  elem.style.left = e.pageX - shiftX + 'px';
+  elem.style.top  = e.pageY - shiftY + 'px';
+  if ( e.pageX - shiftX < 0) elem.style.left = computedDivStyle.left;
+  if ( e.pageY - shiftY < 0) elem.style.top = '0px' ;
+  if ( e.pageX - shiftX > Number(computedDivStyle.width.replace(/px/, '')) - elem.width ) elem.style.left = String(Number(computedDivStyle.width.replace(/px/, '')) - elem.width) + 'px' ;
+  if ( e.pageY - shiftY > window.innerHeight - elem.height) elem.style.top = String(window.innerHeight - elem.height) + 'px' ;
+  saveXY(e)
+}
+//Сохраняем координаты и скоростьи захваченного мячика.
+function saveXY(e) {
+  balls[elem.id.replace(/ball/, '')].x  = Number(elem.style.left.replace(/px/, ''));
+  balls[elem.id.replace(/ball/, '')].y  = Number(elem.style.top.replace(/px/, ''));
+  var interval = Math.max(new Date().getTime() - oldMoveTime, 1);
+  balls[elem.id.replace(/ball/, '')].vx  = Math.min((e.pageX - oldX) / interval, parameters.speedMax / 1000);
+  balls[elem.id.replace(/ball/, '')].vy  = Math.min((e.pageY - oldY) / interval, parameters.speedMax / 1000);
+  oldX = e.pageX; 
+  oldY = e.pageY; 
+  oldMoveTime = new Date().getTime();
+  if (balls[elem.id.replace(/ball/, '')].x > Number(computedDivStyle.width.replace(/px/, '')) * 4 / 5 && 
+      balls[elem.id.replace(/ball/, '')].y < window.innerHeight / 5) rect.h = 0;
+  else rect.h = 1.5;
+}
+
+var fonmousedown = function(e) {
+  if (e.which != 1) return;
+  oldMoveTime = new Date().getTime();
+  oldX = e.pageX; 
+  oldY = e.pageY; 
+  shiftX = e.clientX - e.target.getBoundingClientRect().left;
+  shiftY = e.clientY - e.target.getBoundingClientRect().top;
+  if (e.which != 1) return;
+  elem = e.target; // e.target.closest('.draggable')
+  if (elem.id.indexOf('ball') < 0) return;
+// Выключаем анимацию элемента
+  balls[elem.id.replace(/ball/, '')].isDrag = true;
+  elem.style.position = 'absolute';
+  document.body.appendChild(elem);
+  moveAt(e);
+  elem.style.zIndex = 998; // над другими элементами
+}
+
+window.addEventListener('mousedown', fonmousedown, true);
+
+var fonmousemove = function(e) {
+  if (e.which != 1) return;
+  if (!elem) return;
+  if (elem.id.indexOf('ball') < 0) return;
+  moveAt(e);
+};
+
+window.addEventListener('mousemove', fonmousemove, true);
+
+var fonmouseup = function(e) {
+  if (elem.id.indexOf('ball') < 0) return;
+// Вклюючаем анимацию
+  balls[elem.id.replace(/ball/, '')].isDrag = false;
+}
+
+window.addEventListener('mouseup', fonmouseup, true);
+
+document.ondragstart = function() {
+  return false;
+}
+
+// Для планшета e.targetTouches[0].target - нулевой палец, участвующий в текущем событии
+function ftouchstart(e) {
+  if (e.changedTouches.length === 1) {
+    var touch = e.changedTouches[0];
+    shiftX = touch.pageX - touch.target.offsetLeft;
+    shiftY = touch.pageY - touch.target.offsetTop;
+    elem = touch.target;
+    if (elem.id.indexOf('ball') < 0) return;
+//  Выключаем анимацию элемента
+    balls[elem.id.replace(/ball/, '')].isDrag = true;
+    elem.style.zIndex = 998; // над другими элементами
+  }
+}
+function ftouchmove(e) {
+  if (!elem) return;
+  if (elem.id.indexOf('ball') < 0) return;
+  if (!balls[elem.id.replace(/ball/, '')].isDrag) return;
+  if (e.changedTouches.length === 1) {
+    var touch = e.changedTouches[0];
+    elem.style.left = touch.pageX - shiftX + 'px';
+    elem.style.top = touch.pageY - shiftY + 'px';
+    if ( touch.pageX - shiftX < 0) elem.style.left = computedDivStyle.left;
+    if ( touch.pageY - shiftY < 0) elem.style.top = '0px' ;
+    if ( touch.pageX - shiftX > Number(computedDivStyle.width.replace(/px/, '')) - elem.width ) elem.style.left = String(Number(computedDivStyle.width.replace(/px/, '')) - elem.width) + 'px' ;
+    if ( touch.pageY - shiftY > window.innerHeight - elem.height) elem.style.top = String(window.innerHeight - elem.height) + 'px' ;
+    saveXY(touch); //Сохраняем координаты и скоростьи захваченного мячика.
+  }
+}
+window.addEventListener('touchstart', ftouchstart, false);
+window.addEventListener('touchmove', ftouchmove, false);
+window.addEventListener('touchend', fonmouseup, false);
+
+document.onkeypress = function(e) {
+//  if (e.keyCode===27) cancelAnimationFrame(requestId);
+//  if (e.keyCode===13) start();
+  if (e.keyCode===112) help();
+  if (e.keyCode===115) formParam();
+}
+  </script>
+  </body>
+</html>
